@@ -110,11 +110,15 @@ stages:
               workingDirectory: $(workingDir)
               inlineScript: |
                 set -euo pipefail
-                az acr login --name $(acrName)
-                IMAGE=$(acrLoginServer)/$(imageRepository)
-                docker build -t $IMAGE:$(imageTag) -t $IMAGE:$(Build.SourceVersion) .
-                docker push $IMAGE:$(imageTag)
-                docker push $IMAGE:$(Build.SourceVersion)
+                # Build the image inside ACR (ACR Tasks) using the service
+                # connection's ARM identity. Avoids `az acr login` / docker
+                # login, which fails with federated (workload-identity) SPs.
+                # Tags with both the build id and the commit SHA.
+                az acr build \
+                  --registry $(acrName) \
+                  --image $(imageRepository):$(imageTag) \
+                  --image $(imageRepository):$(Build.SourceVersion) \
+                  .
 
   # ---------------------------------------------------------------------------
   - stage: Deploy_Dev

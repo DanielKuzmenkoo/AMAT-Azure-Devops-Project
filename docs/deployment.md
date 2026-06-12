@@ -2,6 +2,12 @@
 
 Three ways to run the app. Option 1 needs only Docker; options 2–3 need Azure.
 
+> **Scripted provision/teardown.** Once you're `az login`'d, you can do all of
+> the cloud provisioning in one go (register providers → shared ACR → bootstrap
+> image → Container Apps) with `scripts/bootstrap-infra.sh`, and tear it all
+> down (with orphan/RG cleanup) using `scripts/destroy-infra.sh`. The manual
+> steps below explain what those scripts automate.
+
 ## Option 1 — Local Docker
 
 ```bash
