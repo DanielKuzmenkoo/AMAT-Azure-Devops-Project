@@ -18,6 +18,11 @@ variable "container_app_name" {
   description = "Name of the Container App."
 }
 
+variable "container_app_environment_id" {
+  type        = string
+  description = "Resource ID of the shared Container Apps environment to join."
+}
+
 variable "acr_login_server" {
   type        = string
   description = "ACR login server, from the shared acr module output."
@@ -81,11 +86,6 @@ variable "min_replicas" {
 variable "max_replicas" {
   type    = number
   default = 2
-}
-
-variable "log_analytics_retention_days" {
-  type    = number
-  default = 30
 }
 
 variable "tags" {

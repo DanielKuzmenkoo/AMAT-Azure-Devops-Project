@@ -49,17 +49,19 @@ for env in "${ENVIRONMENTS[@]}"; do
 done
 
 if [[ "$DESTROY_SHARED" == "true" ]]; then
+  echo "==> Destroying shared Container Apps environment"
+  destroy_unit "$LIVE/shared/cae"
   echo "==> Destroying shared ACR"
   destroy_unit "$LIVE/shared/acr"
 else
-  echo "==> Keeping shared ACR (subset destroy)"
+  echo "==> Keeping shared ACR + Container Apps environment (subset destroy)"
 fi
 
 # Fallback: remove any resource groups that survived (orphans, partial applies),
 # then drop the now-stale local state so the next apply starts clean.
 echo "==> Cleaning up any leftover resource groups"
 rgs=()
-[[ "$DESTROY_SHARED" == "true" ]] && rgs+=("rg-weather-shared")
+[[ "$DESTROY_SHARED" == "true" ]] && rgs+=("rg-weather-shared" "rg-weather-cae")
 for env in "${ENVIRONMENTS[@]}"; do
   rgs+=("rg-weather-$env" "rg-weather-$env-onprem")
 done
@@ -71,7 +73,7 @@ for rg in "${rgs[@]}"; do
 done
 
 echo "==> Removing stale local Terraform state for destroyed units"
-[[ "$DESTROY_SHARED" == "true" ]] && rm -f "$LIVE/shared/acr/terraform.tfstate"*
+[[ "$DESTROY_SHARED" == "true" ]] && rm -f "$LIVE/shared/acr/terraform.tfstate"* "$LIVE/shared/cae/terraform.tfstate"*
 for env in "${ENVIRONMENTS[@]}"; do
   rm -f "$LIVE/$env/container-app/terraform.tfstate"* "$LIVE/$env/vm-onprem-sim/terraform.tfstate"*
 done
