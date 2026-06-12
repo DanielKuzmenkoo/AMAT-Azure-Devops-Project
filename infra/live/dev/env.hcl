@@ -2,7 +2,7 @@
 # environment differences live in one place.
 locals {
   environment  = "dev"
-  location     = "northeurope"
+  location     = "northeurope" # one CAE per region per subscription (free-tier quota); staging=swedencentral, prod=uksouth
   min_replicas = 1
   max_replicas = 2
 }
