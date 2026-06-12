@@ -58,9 +58,9 @@ variables:
   - name: azureServiceConnection
     value: 'weather-azure' # Azure Resource Manager service connection name
   - name: acrName
-    value: 'acrweathershared' # ACR resource name
+    value: 'acrweatherd76d60' # ACR resource name
   - name: acrLoginServer
-    value: 'acrweathershared.azurecr.io'
+    value: 'acrweatherd76d60.azurecr.io'
   # Immutable tag for this build (never deploy 'latest' to environments).
   - name: imageTag
     value: '$(Build.BuildId)'

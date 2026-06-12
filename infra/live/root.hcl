@@ -6,20 +6,16 @@
 # uses an ARM service connection instead — no credentials live in this repo.
 
 locals {
-  # ---- EDIT THESE before first use ----------------------------------------
-  # Storage account names are GLOBALLY UNIQUE. Change `state_storage_account`
-  # to something unique to you. See docs/terraform-terragrunt.md for the
-  # one-time bootstrap that creates these resources.
-  state_resource_group  = "rg-weather-tfstate"
-  state_storage_account = "stweathertfstate" # <-- must be globally unique
-  state_container       = "tfstate"
-  default_location      = "westeurope"
-  project               = "weather"
+  default_location = "westeurope"
+  project          = "weather"
 }
 
-# Remote state in Azure Storage (one state file per unit, keyed by its path).
+# Local state — simplest path to get the demo running (no storage-account
+# bootstrap). State lives next to each unit and is gitignored.
+# For a shared/team or production setup, switch this to an Azure Storage
+# (azurerm) backend — see docs/terraform-terragrunt.md.
 remote_state {
-  backend = "azurerm"
+  backend = "local"
 
   generate = {
     path      = "backend.tf"
@@ -27,10 +23,7 @@ remote_state {
   }
 
   config = {
-    resource_group_name  = local.state_resource_group
-    storage_account_name = local.state_storage_account
-    container_name       = local.state_container
-    key                  = "${path_relative_to_include()}/terraform.tfstate"
+    path = "${get_terragrunt_dir()}/terraform.tfstate"
   }
 }
 

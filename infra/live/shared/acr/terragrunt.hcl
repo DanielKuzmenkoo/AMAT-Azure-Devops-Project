@@ -12,6 +12,6 @@ terraform {
 inputs = {
   resource_group_name = "rg-weather-shared"
   # ACR name must be globally unique and alphanumeric. EDIT before applying.
-  acr_name = "acrweathershared"
+  acr_name = "acrweatherd76d60"
   sku      = "Standard"
 }
