@@ -1,15 +1,33 @@
-# Azure DevOps pipeline for the Weather demo (FastAPI + Docker).
+# Azure DevOps pipeline for the Weather demo.
 #
-# GitFlow:
-#   main       -> production-ready; deploy to prod after manual approval
-#   develop    -> active integration; deploy to dev
-#   release/*  -> release stabilization; validation only
-#   hotfix/*   -> urgent fixes; validation only
+# Flow: validate -> build image once -> push to shared ACR -> deploy the SAME
+# image to the selected environment, on the selected target (Azure Container
+# Apps or a VM via Ansible).
 #
-# Every branch and PR runs the same quality gate: lint, tests, Docker build.
-# Deployment stages are intentionally simple placeholders so the pipeline runs
-# green without a cloud subscription; wire real steps to a service connection
-# when one is available.
+# GitFlow defaults (when environmentName = auto):
+#   develop    -> dev
+#   release/*  -> staging
+#   main       -> prod   (manual approval on the 'weather-prod' environment)
+#   hotfix/*   -> prod   (urgent; same approval gate)
+# Any environment can also be chosen manually when running the pipeline.
+
+parameters:
+  - name: deployTarget
+    displayName: Deployment target
+    type: string
+    default: aca
+    values:
+      - aca # Azure Container Apps (cloud)
+      - vm  # Azure VM + Docker via Ansible (on-prem simulation)
+  - name: environmentName
+    displayName: Environment (auto = derive from branch)
+    type: string
+    default: auto
+    values:
+      - auto
+      - dev
+      - staging
+      - prod
 
 trigger:
   branches:
@@ -29,11 +47,26 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  pythonVersion: '3.12'
-  workingDir: app
-  imageName: weather-api
+  - name: pythonVersion
+    value: '3.12'
+  - name: workingDir
+    value: app
+  - name: imageRepository
+    value: weather-api
+  # --- Set these as pipeline variables; values come from Terragrunt outputs ---
+  #   terragrunt output acr_name / acr_login_server  (in infra/live/shared/acr)
+  - name: azureServiceConnection
+    value: 'weather-azure' # Azure Resource Manager service connection name
+  - name: acrName
+    value: 'acrweathershared' # ACR resource name
+  - name: acrLoginServer
+    value: 'acrweathershared.azurecr.io'
+  # Immutable tag for this build (never deploy 'latest' to environments).
+  - name: imageTag
+    value: '$(Build.BuildId)'
 
 stages:
+  # ---------------------------------------------------------------------------
   - stage: Validate
     displayName: Lint, Test, Docker build
     jobs:
@@ -44,62 +77,102 @@ stages:
             displayName: Use Python $(pythonVersion)
             inputs:
               versionSpec: '$(pythonVersion)'
-
           - script: pip install -r requirements-dev.txt
             displayName: Install dependencies
             workingDirectory: $(workingDir)
-
           - script: ruff check src tests
             displayName: Lint (ruff)
             workingDirectory: $(workingDir)
-
           - script: pytest -q
             displayName: Run unit tests
             workingDirectory: $(workingDir)
-
-          - script: docker build -t $(imageName):$(Build.BuildId) .
+          - script: docker build -t $(imageRepository):$(imageTag) .
             displayName: Validate Docker build
             workingDirectory: $(workingDir)
 
-  # Deploy to the dev environment on pushes to develop (not on PRs).
+  # ---------------------------------------------------------------------------
+  # Build the image once and push it to the shared ACR, tagged with both the
+  # build id and the commit SHA. Skipped on PRs.
+  - stage: BuildPush
+    displayName: Build and push image to ACR
+    dependsOn: Validate
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - job: build_push
+        displayName: Build and push
+        steps:
+          - task: AzureCLI@2
+            displayName: Build and push to ACR
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: $(workingDir)
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name $(acrName)
+                IMAGE=$(acrLoginServer)/$(imageRepository)
+                docker build -t $IMAGE:$(imageTag) -t $IMAGE:$(Build.SourceVersion) .
+                docker push $IMAGE:$(imageTag)
+                docker push $IMAGE:$(Build.SourceVersion)
+
+  # ---------------------------------------------------------------------------
   - stage: Deploy_Dev
     displayName: Deploy to dev
-    dependsOn: Validate
-    condition: >-
+    dependsOn: BuildPush
+    condition: |
       and(succeeded(),
-          eq(variables['Build.SourceBranch'], 'refs/heads/develop'),
-          ne(variables['Build.Reason'], 'PullRequest'))
+          ne(variables['Build.Reason'], 'PullRequest'),
+          or(eq('${{ parameters.environmentName }}', 'dev'),
+             and(eq('${{ parameters.environmentName }}', 'auto'),
+                 eq(variables['Build.SourceBranch'], 'refs/heads/develop'))))
     jobs:
-      - deployment: deploy_dev
-        displayName: Deploy dev
-        environment: weather-dev
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - script: echo "Deploying $(imageName) to the dev environment..."
-                  displayName: Deploy (placeholder)
+      - ${{ if eq(parameters.deployTarget, 'aca') }}:
+          - template: .azure/deploy-aca.yml
+            parameters:
+              environment: dev
+      - ${{ if eq(parameters.deployTarget, 'vm') }}:
+          - template: .azure/deploy-vm.yml
+            parameters:
+              environment: dev
 
-  # Deploy to production on pushes to main. The 'weather-prod' environment
-  # should have a manual approval check configured in Azure DevOps.
+  # ---------------------------------------------------------------------------
+  - stage: Deploy_Staging
+    displayName: Deploy to staging
+    dependsOn: BuildPush
+    condition: |
+      and(succeeded(),
+          ne(variables['Build.Reason'], 'PullRequest'),
+          or(eq('${{ parameters.environmentName }}', 'staging'),
+             and(eq('${{ parameters.environmentName }}', 'auto'),
+                 startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))))
+    jobs:
+      - ${{ if eq(parameters.deployTarget, 'aca') }}:
+          - template: .azure/deploy-aca.yml
+            parameters:
+              environment: staging
+      - ${{ if eq(parameters.deployTarget, 'vm') }}:
+          - template: .azure/deploy-vm.yml
+            parameters:
+              environment: staging
+
+  # ---------------------------------------------------------------------------
   - stage: Deploy_Prod
     displayName: Deploy to production
-    dependsOn: Validate
-    condition: >-
+    dependsOn: BuildPush
+    condition: |
       and(succeeded(),
-          eq(variables['Build.SourceBranch'], 'refs/heads/main'),
-          ne(variables['Build.Reason'], 'PullRequest'))
+          ne(variables['Build.Reason'], 'PullRequest'),
+          or(eq('${{ parameters.environmentName }}', 'prod'),
+             and(eq('${{ parameters.environmentName }}', 'auto'),
+                 or(eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+                    startsWith(variables['Build.SourceBranch'], 'refs/heads/hotfix/')))))
     jobs:
-      - deployment: deploy_prod
-        displayName: Deploy production
-        environment: weather-prod
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                # Placeholders: with a real service connection these become a
-                # `docker push` to a registry (e.g. ACR) and a deploy step.
-                - script: echo "Pushing $(imageName):$(Build.BuildId) to the container registry..."
-                  displayName: Push production image (placeholder)
-                - script: echo "Deploying $(imageName) to production..."
-                  displayName: Deploy (placeholder)
+      - ${{ if eq(parameters.deployTarget, 'aca') }}:
+          - template: .azure/deploy-aca.yml
+            parameters:
+              environment: prod
+      - ${{ if eq(parameters.deployTarget, 'vm') }}:
+          - template: .azure/deploy-vm.yml
+            parameters:
+              environment: prod

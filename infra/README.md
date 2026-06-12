@@ -1,18 +1,26 @@
 # Infrastructure
 
-Intentionally omitted for this demo.
+Terraform modules wrapped by Terragrunt to provision Azure for the weather app.
 
-The app is a single stateless container with no database and no secrets
-(Open-Meteo needs no API key), so there is nothing to provision for it to run
-locally or in CI.
+```text
+infra/
+├── modules/                # Reusable Terraform modules
+│   ├── acr/                # Shared Azure Container Registry
+│   ├── container-app/      # Container Apps env + app + identity + logs
+│   └── vm-onprem-sim/      # Optional Linux VM (on-prem simulation)
+└── live/                   # Terragrunt environments (DRY)
+    ├── root.hcl            # provider + remote-state backend (included everywhere)
+    ├── shared/acr/         # the one shared registry (deploy FIRST)
+    ├── dev/                # env.hcl + container-app/ + vm-onprem-sim/
+    ├── staging/            # env.hcl + container-app/ + vm-onprem-sim/
+    └── prod/               # env.hcl + container-app/ + vm-onprem-sim/
+```
 
-If this were taken to a real environment, this directory would hold the IaC
-(Bicep or Terraform) for, e.g.:
+The same image is built once, stored in the shared ACR, and promoted across
+dev → staging → prod to either Azure Container Apps (cloud) or a VM (on-prem
+sim). See [../docs/terraform-terragrunt.md](../docs/terraform-terragrunt.md) for
+the state bootstrap and apply order, and
+[../docs/deployment.md](../docs/deployment.md) for the deployment flow.
 
-- An Azure Container Registry to host the image.
-- An Azure App Service (containers) or Container Apps environment to run it.
-- The Azure DevOps service connection wiring used by the deploy stages in
-  [../azure-pipelines.yml](../azure-pipelines.yml).
-
-Keeping it empty here is a deliberate choice to avoid over-engineering an
-interview demo — see the "Over-engineering" notes in [../README.md](../README.md).
+Intentionally excluded: AKS, Kubernetes, service mesh, database, Key Vault —
+there is no secret to store and no state to persist.

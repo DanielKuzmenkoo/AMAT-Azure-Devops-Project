@@ -25,16 +25,30 @@ Weather app behavior:
 - Preferred APIs are Open-Meteo Geocoding API and Open-Meteo Forecast API.
 - Avoid API keys unless another provider is explicitly selected.
 
+Deployment scope (added):
+- Cloud: same image built once, pushed to a shared Azure Container Registry,
+  deployed to Azure Container Apps across dev/staging/prod (image promotion).
+- On-prem simulation: the same image run on an Azure VM via Ansible.
+- IaC: Terraform modules wrapped by Terragrunt for dev/staging/prod.
+- Pipeline: parameters for target (aca/vm) and environment; branch defaults
+  (develop->dev, release/*->staging, main/hotfix->prod with approval).
+- Intentionally excluded: AKS, Kubernetes, service mesh, database, Key Vault.
+
 Review focus:
 - Whether the project is clear and interview-ready.
-- Whether the DevOps flow is easy to explain.
-- Whether the README is strong.
+- Whether the DevOps flow is easy to explain end to end.
+- Whether the README and docs are strong.
 - Whether the architecture is simple but professional.
 - Whether GitFlow is documented clearly.
-- Whether Azure DevOps is demonstrated well.
+- Whether Azure DevOps is demonstrated well (build once, promote, approvals).
+- The Azure Container Apps cloud deployment story.
+- The VM + Ansible on-prem compatibility story.
+- Terragrunt readability and Terraform module clarity.
+- Shared ACR / image-promotion strategy.
+- dev/staging/prod environment separation.
 - Whether Docker, tests, CI, and deployments are represented.
 - Whether API integration is clean and testable.
-- Whether anything looks over-engineered.
+- Whether anything became over-engineered or hard to explain in an interview.
 
 Return:
 1. Strong points
