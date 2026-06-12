@@ -114,4 +114,11 @@ resource "azurerm_container_app" "app" {
 
   # Ensure the identity can pull before the app tries its first image pull.
   depends_on = [azurerm_role_assignment.acr_pull]
+
+  # The pipeline promotes new tags with `az containerapp update`; var.image is
+  # only the bootstrap baseline. Ignore image drift so a later `terragrunt
+  # apply` never rolls an environment back to that baseline.
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
 }

@@ -13,11 +13,18 @@
 #   - terraform, terragrunt installed
 #
 # Usage:
-#   scripts/destroy-infra.sh                # dev staging prod  + shared
-#   scripts/destroy-infra.sh dev            # a subset (+ shared still removed)
+#   scripts/destroy-infra.sh                # full teardown: dev staging prod + shared ACR
+#   scripts/destroy-infra.sh dev            # subset: only dev (shared ACR is KEPT,
+#                                           # other environments still pull from it)
 set -euo pipefail
 
-if [[ $# -gt 0 ]]; then ENVIRONMENTS=("$@"); else ENVIRONMENTS=(dev staging prod); fi
+if [[ $# -gt 0 ]]; then
+  ENVIRONMENTS=("$@")
+  DESTROY_SHARED=false # subset destroy: keep the shared ACR
+else
+  ENVIRONMENTS=(dev staging prod)
+  DESTROY_SHARED=true
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -41,12 +48,18 @@ for env in "${ENVIRONMENTS[@]}"; do
   destroy_unit "$LIVE/$env/container-app"
 done
 
-echo "==> Destroying shared ACR"
-destroy_unit "$LIVE/shared/acr"
+if [[ "$DESTROY_SHARED" == "true" ]]; then
+  echo "==> Destroying shared ACR"
+  destroy_unit "$LIVE/shared/acr"
+else
+  echo "==> Keeping shared ACR (subset destroy)"
+fi
 
-# Fallback: remove any resource groups that survived (orphans, partial applies).
+# Fallback: remove any resource groups that survived (orphans, partial applies),
+# then drop the now-stale local state so the next apply starts clean.
 echo "==> Cleaning up any leftover resource groups"
-rgs=("rg-weather-shared")
+rgs=()
+[[ "$DESTROY_SHARED" == "true" ]] && rgs+=("rg-weather-shared")
 for env in "${ENVIRONMENTS[@]}"; do
   rgs+=("rg-weather-$env" "rg-weather-$env-onprem")
 done
@@ -55,6 +68,12 @@ for rg in "${rgs[@]}"; do
     echo "    az group delete $rg"
     az group delete --name "$rg" --yes --no-wait || true
   fi
+done
+
+echo "==> Removing stale local Terraform state for destroyed units"
+[[ "$DESTROY_SHARED" == "true" ]] && rm -f "$LIVE/shared/acr/terraform.tfstate"*
+for env in "${ENVIRONMENTS[@]}"; do
+  rm -f "$LIVE/$env/container-app/terraform.tfstate"* "$LIVE/$env/vm-onprem-sim/terraform.tfstate"*
 done
 
 echo "==> Teardown requested. RG deletions may still be finishing in the background."
