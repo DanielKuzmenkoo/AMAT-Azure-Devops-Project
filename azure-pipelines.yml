@@ -110,15 +110,22 @@ stages:
               workingDirectory: $(workingDir)
               inlineScript: |
                 set -euo pipefail
-                # Build the image inside ACR (ACR Tasks) using the service
-                # connection's ARM identity. Avoids `az acr login` / docker
-                # login, which fails with federated (workload-identity) SPs.
-                # Tags with both the build id and the commit SHA.
-                az acr build \
-                  --registry $(acrName) \
-                  --image $(imageRepository):$(imageTag) \
-                  --image $(imageRepository):$(Build.SourceVersion) \
-                  .
+                # Docker login with a short-lived ACR token. `az acr login`
+                # fails under workload-identity-federation service connections
+                # (CONNECTIVITY_REFRESH_TOKEN_ERROR: federated logins have no
+                # AAD refresh token), so exchange an ARM *access* token for an
+                # ACR refresh token directly. Then build once, push both tags.
+                AAD_TOKEN=$(az account get-access-token --query accessToken -o tsv)
+                ACR_TOKEN=$(curl -sf -X POST "https://$(acrLoginServer)/oauth2/exchange" \
+                  -d "grant_type=access_token&service=$(acrLoginServer)&access_token=${AAD_TOKEN}" \
+                  | jq -r .refresh_token)
+                printf '%s' "$ACR_TOKEN" | docker login $(acrLoginServer) \
+                  --username 00000000-0000-0000-0000-000000000000 --password-stdin
+
+                IMAGE=$(acrLoginServer)/$(imageRepository)
+                docker build -t $IMAGE:$(imageTag) -t $IMAGE:$(Build.SourceVersion) .
+                docker push $IMAGE:$(imageTag)
+                docker push $IMAGE:$(Build.SourceVersion)
 
   # ---------------------------------------------------------------------------
   - stage: Deploy_Dev
