@@ -55,6 +55,15 @@ Avoid:
 - Over-abstracted provider logic.
 - Caching unless explicitly requested.
 
+Deployment awareness (stay in your lane):
+- The backend must run cleanly in Docker; the same image runs in Azure
+  Container Apps and on a VM, so the app must not assume either environment.
+- `/api/health` is required and is used for container, ACA, and VM health checks.
+- All runtime configuration comes from environment variables (no hardcoding,
+  no secrets — Open-Meteo needs no key).
+- The backend does NOT own Terraform, Terragrunt, Azure DevOps, or Ansible
+  logic. Do not add infrastructure or pipeline concerns to the app.
+
 When reviewing, return:
 1. Critical issues
 2. Suggested improvements
