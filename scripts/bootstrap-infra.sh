@@ -9,8 +9,9 @@
 #   2. Deploy the shared Azure Container Registry FIRST (the env units depend on
 #      its outputs).
 #   3. Push a bootstrap image (weather-api:latest) so the Container Apps have
-#      something to pull on first create. Uses `az acr build` — no local Docker,
-#      no docker-credential-helper passphrase, no `az acr login` token issues.
+#      something to pull on first create. Built locally with Docker: ACR Tasks
+#      (`az acr build`) is not permitted on this subscription
+#      (TasksOperationsNotAllowed — common on free/trial subscriptions).
 #   4. Deploy the Container App per environment. Apps run in North Europe (set in
 #      each env.hcl) because West Europe was capacity-constrained for Container
 #      Apps managed environments; the ACR stays in West Europe (pulls are
@@ -50,7 +51,9 @@ ACR_LOGIN="$(output_raw "$LIVE/shared/acr" acr_login_server)"
 echo "    ACR: $ACR_LOGIN"
 
 echo "==> [2/3] Building & pushing bootstrap image ($IMAGE_REPO:latest)"
-az acr build --registry "$ACR_NAME" --image "$IMAGE_REPO:latest" "$REPO_ROOT/app"
+az acr login --name "$ACR_NAME"
+docker build -t "$ACR_LOGIN/$IMAGE_REPO:latest" "$REPO_ROOT/app"
+docker push "$ACR_LOGIN/$IMAGE_REPO:latest"
 
 echo "==> [3/3] Deploying Container Apps: ${ENVIRONMENTS[*]}"
 for env in "${ENVIRONMENTS[@]}"; do
