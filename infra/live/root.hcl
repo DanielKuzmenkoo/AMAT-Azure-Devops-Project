@@ -34,7 +34,13 @@ generate "provider" {
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "azurerm" {
-  features {}
+  features {
+    resource_group {
+      # Let `destroy` remove a resource group even if it still contains
+      # resources Terraform doesn't track (e.g. a failed Container App env).
+      prevent_deletion_if_contains_resources = false
+    }
+  }
 }
 EOF
 }
