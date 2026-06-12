@@ -100,3 +100,17 @@ The two deploy paths are small templates: `.azure/deploy-aca.yml` and
 environment in the Azure DevOps UI. Secrets (SSH key) come from an Azure DevOps
 **secure file**; ACR pulls use managed identity (ACA) or a short-lived token
 (VM) — nothing is hardcoded.
+
+### One-time: create the deployment environments
+
+The `deployment` jobs target Azure DevOps **Environments** (`weather-dev`,
+`weather-staging`, `weather-prod`). Create them once (UI: *Pipelines →
+Environments → New environment*, Resource: None) or run:
+
+```bash
+AZDO_ORG=<org> AZDO_PROJECT="<project>" AZDO_PAT=<pat> \
+  scripts/setup-azdo-environments.sh
+```
+
+Then add a manual-approval check on `weather-prod` in the UI. If a stage prompts
+to "Permit" an environment on first use, approve it.
