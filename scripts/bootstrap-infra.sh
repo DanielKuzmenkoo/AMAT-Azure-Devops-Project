@@ -9,11 +9,15 @@
 #   2. Deploy the shared Azure Container Registry FIRST (the env units depend on
 #      its outputs).
 #   3. Push a bootstrap image (weather-api:latest) so the Container Apps have
-#      something to pull on first create. Uses `az acr build` — no local Docker,
-#      no docker-credential-helper passphrase, no `az acr login` token issues.
-#   4. Deploy the Container App per environment. Apps run in North Europe (set in
-#      each env.hcl) because West Europe was capacity-constrained for Container
-#      Apps managed environments; the ACR stays in West Europe (pulls are
+#      something to pull on first create. Built locally with Docker: ACR Tasks
+#      (`az acr build`) is not permitted on this subscription
+#      (TasksOperationsNotAllowed — common on free/trial subscriptions).
+#   4. Deploy the ONE shared Container Apps environment (the subscription is
+#      capped at a single CAE: MaxNumberOfGlobalEnvironmentsInSubExceeded on
+#      free/trial tiers). It lives in North Europe.
+#   5. Deploy a Container App per environment. Each app gets its own resource
+#      group and managed identity but joins the shared CAE, so all apps run in
+#      its region (North Europe). The ACR stays in West Europe (pulls are
 #      cross-region).
 #
 # Prerequisites:
@@ -43,16 +47,22 @@ echo "==> Registering resource providers (one-time, subscription-wide)"
 az provider register --namespace Microsoft.App --wait
 az provider register --namespace Microsoft.OperationalInsights --wait
 
-echo "==> [1/3] Deploying shared ACR"
+echo "==> [1/4] Deploying shared ACR"
 apply_unit "$LIVE/shared/acr"
 ACR_NAME="$(output_raw "$LIVE/shared/acr" acr_name)"
 ACR_LOGIN="$(output_raw "$LIVE/shared/acr" acr_login_server)"
 echo "    ACR: $ACR_LOGIN"
 
-echo "==> [2/3] Building & pushing bootstrap image ($IMAGE_REPO:latest)"
-az acr build --registry "$ACR_NAME" --image "$IMAGE_REPO:latest" "$REPO_ROOT/app"
+echo "==> [2/4] Building & pushing bootstrap image ($IMAGE_REPO:latest)"
+az acr login --name "$ACR_NAME"
+docker build -t "$ACR_LOGIN/$IMAGE_REPO:latest" "$REPO_ROOT/app"
+docker push "$ACR_LOGIN/$IMAGE_REPO:latest"
 
-echo "==> [3/3] Deploying Container Apps: ${ENVIRONMENTS[*]}"
+echo "==> [3/4] Deploying shared Container Apps environment (one CAE for all envs)"
+apply_unit "$LIVE/shared/cae"
+echo "    CAE: $(output_raw "$LIVE/shared/cae" container_app_environment_id)"
+
+echo "==> [4/4] Deploying Container Apps: ${ENVIRONMENTS[*]}"
 for env in "${ENVIRONMENTS[@]}"; do
   echo "    -> $env"
   apply_unit "$LIVE/$env/container-app"

@@ -3,20 +3,17 @@
 # Container Apps is used as the managed, serverless container runtime
 # (the "ECS-equivalent") so we get HTTPS ingress, scaling, and health probes
 # without running or patching any Kubernetes.
+#
+# The managed environment (CAE) is NOT created here: the subscription is capped
+# at one CAE, so it lives in the shared/cae unit and every environment's app
+# joins it (via var.container_app_environment_id). Each environment still gets
+# its own resource group and managed identity for isolation. The app must run
+# in the shared environment's region (var.location is set from the CAE output).
 
 resource "azurerm_resource_group" "env" {
   name     = var.resource_group_name
   location = var.location
   tags     = var.tags
-}
-
-resource "azurerm_log_analytics_workspace" "law" {
-  name                = "log-weather-${var.environment}"
-  resource_group_name = azurerm_resource_group.env.name
-  location            = azurerm_resource_group.env.location
-  sku                 = "PerGB2018"
-  retention_in_days   = var.log_analytics_retention_days
-  tags                = var.tags
 }
 
 # User-assigned identity created first, granted AcrPull, then attached to the
@@ -34,18 +31,10 @@ resource "azurerm_role_assignment" "acr_pull" {
   principal_id         = azurerm_user_assigned_identity.aca.principal_id
 }
 
-resource "azurerm_container_app_environment" "cae" {
-  name                       = "cae-weather-${var.environment}"
-  resource_group_name        = azurerm_resource_group.env.name
-  location                   = azurerm_resource_group.env.location
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.law.id
-  tags                       = var.tags
-}
-
 resource "azurerm_container_app" "app" {
   name                         = var.container_app_name
   resource_group_name          = azurerm_resource_group.env.name
-  container_app_environment_id = azurerm_container_app_environment.cae.id
+  container_app_environment_id = var.container_app_environment_id
   revision_mode                = "Single"
   tags                         = var.tags
 

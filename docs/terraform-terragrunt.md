@@ -6,11 +6,13 @@
 infra/
 ├── modules/                      # Reusable Terraform modules
 │   ├── acr/                      # Shared Azure Container Registry
-│   ├── container-app/            # ACA env + app + managed identity + logs
+│   ├── container-app-env/        # Shared Container Apps environment (CAE + logs)
+│   ├── container-app/            # Per-env app + managed identity + AcrPull
 │   └── vm-onprem-sim/            # Optional Linux VM (on-prem simulation)
 └── live/                         # Terragrunt environments (DRY wrappers)
     ├── root.hcl                  # Backend + provider, included everywhere
     ├── shared/acr/               # The one shared registry (deploy FIRST)
+    ├── shared/cae/               # The one shared Container Apps env (deploy SECOND)
     ├── dev/      { env.hcl, container-app/, vm-onprem-sim/ }
     ├── staging/  { env.hcl, container-app/, vm-onprem-sim/ }
     └── prod/     { env.hcl, container-app/, vm-onprem-sim/ }
@@ -20,9 +22,13 @@ infra/
   backend, so each unit only declares its own `inputs`.
 - **`env.hcl`** (per environment) holds environment-specific values
   (`environment`, `location`, replica counts) read by that environment's units.
-- **`dependency "acr"`** lets `container-app` and `vm-onprem-sim` consume the
-  shared registry's outputs; `mock_outputs` allow `plan`/`validate` before the
-  ACR exists.
+- **`dependency "acr"` / `dependency "cae"`** let `container-app` consume the
+  shared registry and the shared Container Apps environment outputs;
+  `mock_outputs` allow `plan`/`validate`/`destroy` before they exist.
+- **One CAE per subscription.** The free/trial tier caps the subscription at a
+  single Container Apps environment, so it lives in `shared/cae` and all three
+  environments' apps join it. They stay isolated by resource group and managed
+  identity, and every app runs in the CAE's region.
 
 > Note: each environment uses `rg-weather-<env>` for the Container App and a
 > separate `rg-weather-<env>-onprem` for the optional VM, so the two units never
@@ -64,6 +70,14 @@ terragrunt init
 terragrunt plan
 terragrunt apply
 terragrunt output            # acr_name, acr_login_server, resource_group_name
+```
+
+Then the shared Container Apps environment (all apps join this one CAE):
+
+```bash
+cd infra/live/shared/cae
+terragrunt apply
+terragrunt output container_app_environment_id
 ```
 
 Then an environment's Container App (repeat for staging/prod):
