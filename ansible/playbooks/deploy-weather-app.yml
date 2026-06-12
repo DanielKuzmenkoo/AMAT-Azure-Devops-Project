@@ -1,0 +1,86 @@
+---
+# Deploy the weather app container to a VM (on-prem simulation).
+#
+# Runs the SAME image that runs in Azure Container Apps, using plain Docker.
+# Open-Meteo needs no API key, so the only configuration is non-secret env vars.
+#
+# Usage:
+#   ansible-galaxy collection install -r ansible/requirements.yml
+#   ansible-playbook -i ansible/inventories/dev.ini \
+#     ansible/playbooks/deploy-weather-app.yml \
+#     -e app_image=myregistry.azurecr.io/weather-api:123
+#
+# To pull a private image, also pass (keep these OUT of the repo):
+#   -e acr_login_server=myregistry.azurecr.io -e acr_username=... -e acr_password=...
+- name: Deploy weather app to on-prem-sim VM
+  hosts: weather
+  become: true
+
+  vars:
+    app_name: weather-api
+    app_port: "{{ app_port | default(8000) }}"
+    # app_image must be provided (inventory var or -e). Fail early if missing.
+    forecast_days: "{{ forecast_days | default(14) }}"
+    geocoding_api_base_url: "{{ geocoding_api_base_url | default('https://geocoding-api.open-meteo.com/v1') }}"
+    weather_api_base_url: "{{ weather_api_base_url | default('https://api.open-meteo.com/v1') }}"
+    http_timeout_seconds: "{{ http_timeout_seconds | default(5) }}"
+    acr_login_server: "{{ acr_login_server | default('') }}"
+    acr_username: "{{ acr_username | default('') }}"
+    acr_password: "{{ acr_password | default('') }}"
+
+  tasks:
+    - name: Require an image reference
+      ansible.builtin.assert:
+        that:
+          - app_image is defined
+          - app_image | length > 0
+        fail_msg: "Set app_image (inventory var or -e app_image=registry/weather-api:tag)"
+
+    - name: Install Docker and the Python SDK
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - python3-docker
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker is running and enabled
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Log in to the container registry (only if credentials are provided)
+      community.docker.docker_login:
+        registry: "{{ acr_login_server }}"
+        username: "{{ acr_username }}"
+        password: "{{ acr_password }}"
+      when:
+        - acr_login_server | length > 0
+        - acr_username | length > 0
+        - acr_password | length > 0
+      no_log: true
+
+    - name: Run the weather app container
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        image: "{{ app_image }}"
+        state: started
+        pull: true
+        restart_policy: always
+        published_ports:
+          - "{{ app_port }}:8000"
+        env:
+          FORECAST_DAYS: "{{ forecast_days | string }}"
+          GEOCODING_API_BASE_URL: "{{ geocoding_api_base_url }}"
+          WEATHER_API_BASE_URL: "{{ weather_api_base_url }}"
+          HTTP_TIMEOUT_SECONDS: "{{ http_timeout_seconds | string }}"
+
+    - name: Wait for the health endpoint to respond
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/api/health"
+        status_code: 200
+      register: health
+      retries: 10
+      delay: 3
+      until: health.status == 200

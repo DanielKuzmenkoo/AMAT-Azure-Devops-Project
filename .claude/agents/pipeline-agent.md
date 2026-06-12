@@ -24,32 +24,42 @@ GitFlow branches:
 - `hotfix/*` branches are for urgent production fixes.
 
 Pipeline behavior:
-- PRs into `develop`: run lint, tests, and Docker build validation.
-- Pushes to `develop`: run lint, tests, build Docker image, and deploy to dev if configured.
-- Pushes to `release/*`: run lint, tests, build Docker image, and prepare release validation.
-- Pushes to `main`: run lint, tests, build Docker image, push production image tag, and deploy to production after manual approval.
-- Pushes to `hotfix/*`: run lint, tests, build Docker image, and prepare urgent fix validation.
+- Validate (every PR and push): lint, tests, Docker build validation.
+- Build once: build the Docker image a single time and push it to the shared
+  ACR, tagged with the Build ID and the commit SHA (never deploy `latest`).
+- Deploy the SAME image — no rebuild per environment.
+
+Pipeline parameters:
+- `deployTarget`: `aca` (Azure Container Apps) or `vm` (Ansible to a VM).
+- `environmentName`: `auto`, `dev`, `staging`, `prod` (`auto` derives from branch).
+
+Branch defaults (when `environmentName = auto`):
+- `develop` -> dev
+- `release/*` -> staging
+- `main` -> prod (manual approval)
+- `hotfix/*` -> prod (urgent; manual approval)
+
+Deployment paths:
+- ACA: `az containerapp update` to the env's app with the new image tag.
+- VM: run the Ansible playbook against the env inventory using the SAME tag;
+  pull from ACR with a short-lived token; SSH key from an Azure DevOps secure
+  file. Keep all secrets out of the repo.
 
 Focus on:
-- Azure Pipelines YAML correctness.
+- Azure Pipelines YAML correctness (parameters, conditions, deployment jobs).
 - Microsoft-hosted agent usage with `pool: vmImage: ubuntu-latest`.
-- GitFlow trigger support.
-- PR validation.
-- Lint and test stages.
-- Docker build validation.
-- Docker image build and push.
-- Dev deployment from `develop`.
-- Production deployment from `main`.
-- Manual approval before production.
-- Safe service connection usage.
-- Clear pipeline readability.
+- GitFlow trigger support and readable branch conditions.
+- PR validation; lint/test/docker-build stages.
+- Build-once-deploy-same-image with immutable tags.
+- Environment selection (dev/staging/prod) and target selection (aca/vm).
+- Manual approval before production (via the `weather-prod` environment).
+- Service connections and pipeline variables; no hardcoded secrets.
 
 Avoid:
-- Too many pipelines.
-- Unnecessary templates.
-- Complex enterprise release logic.
-- Over-engineered branching rules.
-- Self-hosted agents unless explicitly requested.
+- Too many pipelines (prefer one readable file; small templates are OK for the
+  two deploy paths to stay DRY).
+- Complex enterprise release logic; over-engineered branching rules.
+- Self-hosted agents or custom agent demands unless explicitly requested.
 
 When reviewing, return:
 1. Pipeline issues

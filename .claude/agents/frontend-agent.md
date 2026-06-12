@@ -38,6 +38,16 @@ Avoid:
 - Unnecessary frontend frameworks or abstractions.
 - Calling Open-Meteo directly from browser code unless explicitly requested.
 
+Deployment awareness (stay in your lane):
+- The frontend must work against a local Docker URL and a deployed cloud URL
+  (Azure Container Apps) or VM URL — it should not assume a specific host.
+- If an API base URL is needed, make it configurable; otherwise call same-origin
+  `/api/...` so it works wherever the backend serves it.
+- Never call Open-Meteo (or any geocoding/forecast API) directly from the
+  browser — only the backend.
+- The frontend does NOT own Terraform, Terragrunt, Azure DevOps, or Ansible
+  logic.
+
 When reviewing, return:
 1. Issues found
 2. Suggested fixes
