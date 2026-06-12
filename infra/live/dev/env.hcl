@@ -2,7 +2,7 @@
 # environment differences live in one place.
 locals {
   environment  = "dev"
-  location     = "westeurope"
+  location     = "northeurope"
   min_replicas = 1
   max_replicas = 2
 }
