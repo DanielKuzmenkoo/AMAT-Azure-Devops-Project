@@ -26,8 +26,22 @@ GitFlow branches:
 Pipeline behavior:
 - Validate (every PR and push): lint, tests, Docker build validation.
 - Build once: build the Docker image a single time and push it to the shared
-  ACR, tagged with the Build ID and the commit SHA (never deploy `latest`).
+  ACR. The environment tag is derived from the branch (see Image tagging); the
+  immutable commit SHA is always pushed too (never deploy `latest`).
 - Deploy the SAME image — no rebuild per environment.
+
+Image tagging (computed at runtime by the `setTag` step in BuildPush, emitted
+as an output variable and consumed by the deploy stages):
+- `develop`   -> `develop.<BuildId>`                 (deploy dev)
+- `release/*` -> `release-<branch suffix>`           e.g. release/v1.1.0 -> release-v1.1.0 (deploy staging)
+- `main`      -> `prod-<VER>`  latest semver git tag, MINOR bumped (deploy prod)
+- `hotfix/*`  -> `prod-<VER>`  latest semver git tag, PATCH bumped (deploy prod)
+- feature/PR  -> `feature.<BuildId>`                 (validation only; never pushed)
+- The commit SHA tag is pushed on every non-PR build for an immutable reference.
+- For `main`/`hotfix/*` the build also creates and pushes an annotated git tag
+  `v<VER>` to GitHub via a secret `GITHUB_PAT` pipeline variable (never
+  hardcoded). CI owns prod versioning; pushing a tag does not retrigger CI
+  (triggers are branch-based, not tags).
 
 Pipeline parameters:
 - `deployTarget`: `aca` (Azure Container Apps) or `vm` (Ansible to a VM).
@@ -50,7 +64,8 @@ Focus on:
 - Microsoft-hosted agent usage with `pool: vmImage: ubuntu-latest`.
 - GitFlow trigger support and readable branch conditions.
 - PR validation; lint/test/docker-build stages.
-- Build-once-deploy-same-image with immutable tags.
+- Build-once-deploy-same-image with branch-derived tags plus an immutable
+  commit-SHA tag; semver git tags auto-cut for prod (main/hotfix).
 - Environment selection (dev/staging/prod) and target selection (aca/vm).
 - Manual approval before production (via the `weather-prod` environment).
 - Service connections and pipeline variables; no hardcoded secrets.
