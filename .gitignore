@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# Local pip --target dir used for running tests without a venv
+.pylibs/
+
 # Environments
 .env
 .envrc

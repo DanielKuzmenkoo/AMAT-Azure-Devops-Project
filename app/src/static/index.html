@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weather Demo</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; background: #0f172a; color: #e2e8f0; }
+    main { max-width: 900px; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { font-weight: 600; }
+    form { display: flex; gap: .5rem; margin: 1rem 0; }
+    input { flex: 1; padding: .6rem .8rem; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: inherit; }
+    button { padding: .6rem 1.1rem; border: 0; border-radius: 8px; background: #38bdf8; color: #0f172a; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    .meta { color: #94a3b8; margin-bottom: 1rem; }
+    .state { padding: 1rem; border-radius: 8px; }
+    .error { background: #7f1d1d; color: #fecaca; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .75rem; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: .8rem; }
+    .card .date { color: #94a3b8; font-size: .85rem; }
+    .card .cond { font-weight: 600; margin: .3rem 0; }
+    .card .row { font-size: .85rem; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>🌦️ Weather Demo</h1>
+    <p class="meta">Powered by Open-Meteo. Enter a city to see a multi-day forecast.</p>
+    <form id="form">
+      <input id="city" name="city" placeholder="e.g. Berlin" autocomplete="off" />
+      <button id="submit" type="submit">Get forecast</button>
+    </form>
+    <div id="output"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById("form");
+    const cityInput = document.getElementById("city");
+    const submitBtn = document.getElementById("submit");
+    const output = document.getElementById("output");
+
+    function render(html) { output.innerHTML = html; }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const city = cityInput.value.trim();
+      if (!city) { render('<div class="state error">Please enter a city.</div>'); return; }
+
+      submitBtn.disabled = true;
+      render('<div class="state">Loading forecast…</div>'); // loading state
+
+      try {
+        const res = await fetch(`/api/weather?city=${encodeURIComponent(city)}`);
+        const data = await res.json();
+        if (!res.ok) { // error state
+          render(`<div class="state error">${data.error || "Something went wrong."}</div>`);
+          return;
+        }
+        if (!data.forecast.length) { // empty state
+          render('<div class="state">No forecast data available.</div>');
+          return;
+        }
+        const loc = data.location;
+        const cards = data.forecast.map((d) => `
+          <div class="card">
+            <div class="date">${d.date}</div>
+            <div class="cond">${d.condition}</div>
+            <div class="row">🌡️ ${d.temperature_min_c ?? "–"}° / ${d.temperature_max_c ?? "–"}°C</div>
+            <div class="row">💧 ${d.humidity_pct ?? "–"}% &nbsp; 🌧️ ${d.precipitation_probability_pct ?? "–"}%</div>
+            <div class="row">💨 ${d.wind_speed_max_kmh ?? "–"} km/h</div>
+          </div>`).join("");
+        render(`
+          <p class="meta">${loc.name}${loc.country ? ", " + loc.country : ""} · ${data.forecast_days} days</p>
+          <div class="grid">${cards}</div>`); // success state
+      } catch (err) {
+        render('<div class="state error">Could not reach the server.</div>');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
