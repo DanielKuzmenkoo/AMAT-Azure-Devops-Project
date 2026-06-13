@@ -356,11 +356,14 @@ One readable pipeline ([azure-pipelines.yml](azure-pipelines.yml)) on a
 Microsoft-hosted agent (`ubuntu-latest`), plus two small deploy-job templates in
 [.azure/](.azure/):
 
-1. **Validate** (every PR and push): **lint** (ruff) → **tests** (pytest) →
-   **Docker build validation**.
+1. **Validate** (every PR and push): **lint** (ruff) → **unit tests** →
+   **integration tests** (pytest) → **Docker build validation**.
 2. **BuildPush** (non-PR): build the image **once**, push to ACR tagged with the
    build id **and** commit SHA — production never deploys `latest`.
-3. **Deploy**: deploy the pushed image to the selected environment and target.
+3. **Deploy**: deploy the pushed image to the selected environment and target,
+   then run **smoke tests** against the live URL (fails the deploy if unhealthy).
+4. **E2E_Staging** (`release/*` only): after the staging deploy, run **end-to-end
+   tests** against the live staging app before it can be promoted to production.
 
 Run-time parameters:
 
@@ -400,6 +403,39 @@ Provisioned by [scripts/bootstrap-infra.sh](scripts/bootstrap-infra.sh) (the
 Terraform but **optional/off by default** (set `alert_email` to enable). Full
 details, setup, KQL queries, and dashboards:
 [docs/observability.md](docs/observability.md).
+### Testing
+
+Tests follow a pyramid, organised by directory under [app/tests/](app/tests/)
+and selected by pytest marker. Each layer runs at the pipeline stage where it
+adds the most signal for the least cost:
+
+| Layer | Scope | External calls | Pipeline stage |
+|---|---|---|---|
+| **unit** | pure functions (weather codes, humidity averaging, forecast mapping, config) | none (no I/O) | **Validate** — every PR + push |
+| **integration** | full app via FastAPI `TestClient` | Open-Meteo **mocked** (respx) | **Validate** — every PR + push |
+| **e2e** | live deployed app, full request path | **real** Open-Meteo | **E2E_Staging** — after staging deploy (`release/*`) |
+| **smoke** | live deployed app: health + one happy path | **real** Open-Meteo | **after each deploy** (dev/staging/prod) |
+
+- A bare `pytest` runs **unit + integration** only (the build gate). The live
+  suites are opt-in (`pytest -m e2e` / `pytest -m smoke`) and **self-skip when
+  `BASE_URL` is unset**, so local runs and the build never hit the network.
+- **unit + integration gate the path to every environment** — they run on PRs
+  and on `develop`/`release/*`/`main` alike, never skipped on the way to prod.
+- **smoke is post-deploy**, against the running app — it verifies the live
+  environment, not the build. **e2e** exercises real dependencies in staging
+  before promotion; prod gets only the non-destructive smoke check.
+
+Per-branch flow (testing shown at each gate):
+
+```text
+PR            ─▶ Validate(lint · unit · integration · docker build)        # no deploy
+develop  ─▶ Validate ─▶ BuildPush ─▶ Deploy dev      ─▶ smoke(dev)
+release/* ─▶ Validate ─▶ BuildPush ─▶ Deploy staging ─▶ smoke(staging) ─▶ e2e(staging)
+main      ─▶ Validate ─▶ BuildPush ─▶ Deploy prod*    ─▶ smoke(prod)        # *manual approval
+```
+
+See [.claude/agents/testing-qa.md](.claude/agents/testing-qa.md) for the test
+strategy in full (layers, markers, the `BASE_URL` convention, and stage mapping).
 
 ## GitFlow
 

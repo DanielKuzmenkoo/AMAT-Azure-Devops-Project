@@ -88,8 +88,14 @@ stages:
           - script: ruff check src tests
             displayName: Lint (ruff)
             workingDirectory: $(workingDir)
-          - script: pytest -q
-            displayName: Run unit tests
+          # Unit + integration are the build gate: they run on every PR and on
+          # develop/release/main, so they protect the path to EVERY environment.
+          # Split into two named steps so the layers are visible in the UI.
+          - script: pytest -m unit -q
+            displayName: Unit tests
+            workingDirectory: $(workingDir)
+          - script: pytest -m integration -q
+            displayName: Integration tests
             workingDirectory: $(workingDir)
           # Validation-only build (never pushed). Uses the build id as a throwaway
           # local tag; the real environment tag is computed later in BuildPush.
@@ -263,6 +269,51 @@ stages:
           - template: .azure/deploy-vm.yml
             parameters:
               environment: staging
+
+  # ---------------------------------------------------------------------------
+  # End-to-end tests against the live staging app, after it's deployed. Only
+  # runs on the staging path (release/* via auto, or environmentName=staging)
+  # and only on ACA. The e2e suite reads BASE_URL and is skipped if unset, but
+  # we resolve the staging URL here so it actually exercises the deployed app.
+  - stage: E2E_Staging
+    displayName: End-to-end tests (staging)
+    dependsOn: Deploy_Staging
+    condition: |
+      and(succeeded(),
+          ne(variables['Build.Reason'], 'PullRequest'),
+          eq('${{ parameters.deployTarget }}', 'aca'),
+          or(eq('${{ parameters.environmentName }}', 'staging'),
+             and(eq('${{ parameters.environmentName }}', 'auto'),
+                 startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))))
+    # The job is always defined; the stage-level condition (which includes the
+    # aca check) skips the whole stage for vm runs. We avoid a compile-time
+    # ${{ if }} guard here because, with no vm branch, it would expand to a
+    # zero-job stage (a YAML error) on vm runs.
+    jobs:
+      - job: e2e_staging
+        displayName: E2E (staging)
+        steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python $(pythonVersion)
+            inputs:
+              versionSpec: '$(pythonVersion)'
+          - script: pip install -r requirements-dev.txt
+            displayName: Install test deps
+            workingDirectory: $(workingDir)
+          - task: AzureCLI@2
+            displayName: End-to-end tests (staging)
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: $(workingDir)
+              inlineScript: |
+                set -euo pipefail
+                az extension add --name containerapp --upgrade --only-show-errors
+                FQDN=$(az containerapp show --name ca-weather-staging --resource-group rg-weather-staging --query properties.configuration.ingress.fqdn -o tsv)
+                export BASE_URL="https://${FQDN}"
+                echo "Running e2e against ${BASE_URL}"
+                pytest -m e2e -q
 
   # ---------------------------------------------------------------------------
   - stage: Deploy_Prod
