@@ -79,11 +79,17 @@ See [onprem-simulation.md](onprem-simulation.md) for details.
 
 `azure-pipelines.yml` (Microsoft-hosted `ubuntu-latest`):
 
-1. **Validate** — lint (ruff), tests (pytest), Docker build. Runs on every PR
-   and push.
+1. **Validate** — lint (ruff), **unit** + **integration** tests (pytest), Docker
+   build. Runs on every PR and push.
 2. **BuildPush** — build the image once, push to ACR tagged with the build id
    **and** the commit SHA (never deploy `latest`).
-3. **Deploy** — deploy the pushed image to the selected environment and target.
+3. **Deploy** — deploy the pushed image to the selected environment and target,
+   then run **smoke** tests against the live URL.
+4. **E2E_Staging** (`release/*` only) — run **end-to-end** tests against the live
+   staging app before promotion to prod.
+
+See the [Testing](../README.md#testing) section for the test pyramid (which
+layer runs at which stage, and the `BASE_URL` convention for live suites).
 
 Parameters (selectable on manual run):
 
