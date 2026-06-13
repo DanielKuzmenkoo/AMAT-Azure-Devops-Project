@@ -1,6 +1,16 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# A bare `pytest` runs the build-gate suites (unit + integration). The live
+# suites are opt-in: `pytest -m e2e` / `pytest -m smoke` (and they self-skip
+# unless BASE_URL is set).
+addopts = "-m 'not e2e and not smoke'"
+markers = [
+    "unit: fast, isolated function-level tests (no I/O)",
+    "integration: full-app tests via TestClient with mocked Open-Meteo (respx)",
+    "e2e: end-to-end tests against a deployed BASE_URL (real Open-Meteo)",
+    "smoke: minimal, non-destructive post-deploy checks against a deployed BASE_URL",
+]
 
 [tool.ruff]
 line-length = 100
