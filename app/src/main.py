@@ -21,13 +21,18 @@ from .service import CityNotFoundError, get_locations, get_weather
 
 
 def _configure_observability() -> None:
-    """Wire up Application Insights via the Azure Monitor OpenTelemetry distro.
+    """Configure Application Insights export and outbound (httpx) tracing.
 
-    Runs before the app is created so FastAPI request auto-instrumentation
-    applies. It is a no-op unless APPLICATIONINSIGHTS_CONNECTION_STRING is set,
-    so local development, CI, and tests run with no telemetry and no extra
-    dependencies exercised. The Container App injects the connection string and
-    sets OTEL_SERVICE_NAME to the per-environment cloud role name.
+    Runs before the app is created. It is a no-op unless
+    APPLICATIONINSIGHTS_CONNECTION_STRING is set, so local development, CI, and
+    tests run with no telemetry and no extra dependencies exercised. The
+    Container App injects the connection string and sets OTEL_SERVICE_NAME to the
+    per-environment cloud role name.
+
+    NOTE: the Azure Monitor distro does NOT auto-instrument FastAPI, so inbound
+    requests are instrumented separately in `_instrument_requests` once the app
+    exists. configure_azure_monitor here sets up the exporter and the httpx
+    instrumentation traces the outbound Open-Meteo calls.
 
     Telemetry is best-effort: any failure here (missing package, bad connection
     string, unreachable endpoint) is logged and swallowed so observability can
@@ -39,11 +44,32 @@ def _configure_observability() -> None:
         from azure.monitor.opentelemetry import configure_azure_monitor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-        configure_azure_monitor()  # auto-instruments FastAPI; exports to App Insights
+        configure_azure_monitor()  # exporter to App Insights (does NOT cover FastAPI)
         HTTPXClientInstrumentor().instrument()  # trace outbound Open-Meteo calls
     except Exception:  # noqa: BLE001 - telemetry must never crash the app
         logging.getLogger(__name__).warning(
             "Application Insights setup failed; continuing without telemetry.",
+            exc_info=True,
+        )
+
+
+def _instrument_requests(fastapi_app: FastAPI) -> None:
+    """Trace inbound FastAPI requests (this is what populates the `requests`
+    table and the App Insights Overview).
+
+    The Azure Monitor distro does not auto-instrument FastAPI, so attach the
+    instrumentation explicitly to the app instance. No-op without the connection
+    string; best-effort so it can never crash the app.
+    """
+    if not os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(fastapi_app)
+    except Exception:  # noqa: BLE001 - telemetry must never crash the app
+        logging.getLogger(__name__).warning(
+            "FastAPI request instrumentation failed; continuing without it.",
             exc_info=True,
         )
 
@@ -55,6 +81,7 @@ app = FastAPI(
     description="A small weather demo backed by Open-Meteo (no API key required).",
     version="1.0.0",
 )
+_instrument_requests(app)
 
 
 class BadRequestError(Exception):
