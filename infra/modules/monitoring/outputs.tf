@@ -19,3 +19,8 @@ output "instrumentation_key" {
   value       = azurerm_application_insights.ai.instrumentation_key
   sensitive   = true
 }
+
+output "workbook_id" {
+  description = "Resource ID of the app & pipeline health Workbook (dashboard)."
+  value       = azurerm_application_insights_workbook.health.id
+}
