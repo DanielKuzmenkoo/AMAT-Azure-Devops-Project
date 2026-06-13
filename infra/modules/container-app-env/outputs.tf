@@ -12,3 +12,8 @@ output "resource_group_name" {
   description = "Resource group holding the shared environment."
   value       = azurerm_resource_group.cae.name
 }
+
+output "log_analytics_workspace_id" {
+  description = "Workspace ID, reused by Application Insights (workspace-based)."
+  value       = azurerm_log_analytics_workspace.law.id
+}

@@ -383,6 +383,24 @@ environment (Azure DevOps UI). ACR pulls use a managed identity (ACA) or a
 short-lived token (VM); the VM SSH key is an Azure DevOps secure file — no
 secrets are hardcoded.
 
+## Observability
+
+Azure-native and serverless — **no VMs, no self-hosted stack**. Both the app and
+the pipeline report to one **Application Insights**, backed by the **same Log
+Analytics workspace** the Container Apps environment already uses.
+
+| Source | What | How |
+|---|---|---|
+| **App** | requests (rate/latency/failures), **Open-Meteo dependency calls**, exceptions, logs | Azure Monitor **OpenTelemetry** distro in [main.py](app/src/main.py), guarded by `APPLICATIONINSIGHTS_CONNECTION_STRING` (off locally/CI) |
+| **App** | per-environment separation | OpenTelemetry cloud role name `OTEL_SERVICE_NAME = weather-<env>` (one AI resource for all envs) |
+| **Pipeline** | **DORA** deployment events (deploy frequency, lead time, change-failure rate) | deploy step posts a `Deployment` event (success *and* failure) to App Insights; plus Azure DevOps Analytics |
+
+Provisioned by [scripts/bootstrap-infra.sh](scripts/bootstrap-infra.sh) (the
+`shared/monitoring` unit reuses the CAE's workspace). Alerts are defined in
+Terraform but **optional/off by default** (set `alert_email` to enable). Full
+details, setup, KQL queries, and dashboards:
+[docs/observability.md](docs/observability.md).
+
 ## GitFlow
 
 | Branch | Role |

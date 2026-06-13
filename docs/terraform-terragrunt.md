@@ -8,11 +8,13 @@ infra/
 │   ├── acr/                      # Shared Azure Container Registry
 │   ├── container-app-env/        # Shared Container Apps environment (CAE + logs)
 │   ├── container-app/            # Per-env app + managed identity + AcrPull
+│   ├── monitoring/               # App Insights (reuses CAE workspace) + alerts
 │   └── vm-onprem-sim/            # Optional Linux VM (on-prem simulation)
 └── live/                         # Terragrunt environments (DRY wrappers)
     ├── root.hcl                  # Backend + provider, included everywhere
     ├── shared/acr/               # The one shared registry (deploy FIRST)
     ├── shared/cae/               # The one shared Container Apps env (deploy SECOND)
+    ├── shared/monitoring/        # Application Insights (deploy THIRD)
     ├── dev/      { env.hcl, container-app/, vm-onprem-sim/ }
     ├── staging/  { env.hcl, container-app/, vm-onprem-sim/ }
     └── prod/     { env.hcl, container-app/, vm-onprem-sim/ }
@@ -78,6 +80,15 @@ Then the shared Container Apps environment (all apps join this one CAE):
 cd infra/live/shared/cae
 terragrunt apply
 terragrunt output container_app_environment_id
+```
+
+Then the shared Application Insights (reuses the CAE's workspace; the apps read
+its connection string):
+
+```bash
+cd infra/live/shared/monitoring
+terragrunt apply
+terragrunt output -raw connection_string   # also used by the pipeline (DORA)
 ```
 
 Then an environment's Container App (repeat for staging/prod):

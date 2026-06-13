@@ -20,6 +20,10 @@ This is an interview-focused DevOps project.
 * Prefer clear docs over clever abstractions.
 * Avoid paid APIs or API keys unless explicitly requested.
 * Do not introduce unnecessary infrastructure just to make the project look bigger.
+* For monitoring, prefer Azure-native, serverless observability (Application
+  Insights / Azure Monitor) that reuses existing resources. Do not stand up a
+  self-hosted metrics/logs/traces stack (e.g. Prometheus/Grafana/Loki/Tempo) on
+  VMs to monitor a serverless app.
 
 ## Quality Bar
 
@@ -298,6 +302,45 @@ pool:
 * Keep deployment stages easy to explain.
 * Store secrets in Azure DevOps variables, variable groups, service connections, or Azure Key Vault only when secrets are actually needed.
 * Since Open-Meteo does not require an API key, do not create unnecessary API-key secrets.
+
+---
+
+# Observability
+
+Monitoring is **Azure-native and serverless** — no VMs, no self-hosted stack.
+
+## App (Azure Container Apps)
+
+* **Application Insights** (workspace-based) reuses the shared Container Apps
+  environment's Log Analytics workspace — one observability backend, no extra
+  workspace.
+* The app is instrumented with the **Azure Monitor OpenTelemetry distro**
+  (`azure-monitor-opentelemetry`), tracing inbound FastAPI requests and the
+  outbound Open-Meteo `httpx` dependency calls, plus request rate, latency,
+  failures, and exceptions.
+* Instrumentation is **guarded by `APPLICATIONINSIGHTS_CONNECTION_STRING`**: when
+  it is unset (local dev, CI, tests) the app emits no telemetry and the extra
+  dependencies are never exercised.
+* One App Insights serves dev/staging/prod; environments are separated by
+  **OpenTelemetry cloud role name** (`OTEL_SERVICE_NAME = weather-<env>`), not by
+  separate resources.
+* Platform logs and metrics already flow from Container Apps into the shared Log
+  Analytics workspace.
+* **Alerts** (failed requests, server exceptions) are defined in Terraform but
+  **optional and off by default** — set `alert_email` to enable an action group.
+
+## CI/CD pipeline
+
+* Each deploy records a **deployment event** to Application Insights (result,
+  environment, image tag, commit, build), on success and failure, enabling
+  **DORA-style metrics** (deployment frequency, lead time, change-failure rate).
+* Complemented by Azure DevOps' built-in **pipeline Analytics** (pass rate,
+  duration trends) and the deploy stage's health check.
+* The pipeline reads `APPLICATIONINSIGHTS_CONNECTION_STRING` from a **secret
+  pipeline variable**; when unset, the deployment-event step is a no-op.
+
+See [docs/observability.md](docs/observability.md) for what is collected, the
+KQL queries, dashboards, and how to enable alerts.
 
 ---
 
