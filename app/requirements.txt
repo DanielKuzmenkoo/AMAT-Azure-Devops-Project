@@ -1,10 +1,11 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 httpx==0.28.1
-# Observability: Azure Monitor OpenTelemetry distro traces inbound FastAPI
-# requests + exceptions and exports to Application Insights. The distro does NOT
-# pull the httpx instrumentation, so add it explicitly to trace the outbound
-# Open-Meteo calls (its version tracks the distro's OpenTelemetry stack). Both
-# are active only when APPLICATIONINSIGHTS_CONNECTION_STRING is set (src/main.py).
+# Observability: Azure Monitor OpenTelemetry distro exports to Application
+# Insights. The distro does NOT enable FastAPI or httpx instrumentation, so pin
+# and enable both explicitly (src/main.py): FastAPI for inbound requests, httpx
+# for the outbound Open-Meteo calls. Versions track the distro's OpenTelemetry
+# stack. All active only when APPLICATIONINSIGHTS_CONNECTION_STRING is set.
 azure-monitor-opentelemetry==1.8.8
+opentelemetry-instrumentation-fastapi==0.61b0
 opentelemetry-instrumentation-httpx==0.61b0
