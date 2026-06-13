@@ -254,6 +254,33 @@ The Azure DevOps pipeline should follow this behavior:
 * Build Docker image.
 * Prepare urgent production fix validation.
 
+## Image Tagging
+
+Build the image once and push it to the shared ACR. The environment-facing tag
+is derived from the branch at runtime (computed in the `BuildPush` stage and
+passed to the deploy stages as an output variable). Never deploy `latest`.
+
+| Branch | Image tag | Deploys to |
+| --- | --- | --- |
+| `develop` | `develop.<BuildId>` | dev |
+| `release/*` | `release-<branch suffix>` (e.g. `release/v1.1.0` → `release-v1.1.0`) | staging |
+| `main` | `prod-<VER>` — latest semver git tag with the **MINOR** bumped (e.g. `v1.1.0` → `prod-1.2.0`) | prod |
+| `hotfix/*` | `prod-<VER>` — latest semver git tag with the **PATCH** bumped (e.g. `v1.1.0` → `prod-1.1.1`) | prod |
+| `feature/*` / PR | `feature.<BuildId>` | validation only — **not pushed** |
+
+Tagging rules:
+
+* The immutable commit SHA is also pushed on every non-PR build, so every
+  deployment has a fully traceable reference even when the branch tag is more
+  human-readable.
+* For `main` and `hotfix/*`, the build also creates and pushes an annotated git
+  tag `v<VER>` to GitHub, so production releases are versioned in source
+  control. This means CI owns prod versioning — do not also tag manually.
+* The git tag push uses a secret `GITHUB_PAT` pipeline variable; never hardcode
+  it. Pushing a tag does not retrigger CI (triggers are branch-based, not tags).
+* `feature/*` images are built and validated locally / in PR checks but never
+  pushed to the registry.
+
 ## Pipeline Rules
 
 * Prefer one clear Azure Pipelines YAML file.

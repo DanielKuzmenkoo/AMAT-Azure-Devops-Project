@@ -61,9 +61,10 @@ variables:
     value: 'acrweatherd76d60' # ACR resource name
   - name: acrLoginServer
     value: 'acrweatherd76d60.azurecr.io'
-  # Immutable tag for this build (never deploy 'latest' to environments).
-  - name: imageTag
-    value: '$(Build.BuildId)'
+  # NOTE: the environment image tag is NOT a pipeline-level variable. It is
+  # computed at runtime per branch by the 'setTag' step in BuildPush and
+  # consumed by the deploy stages as an output variable (see below). We never
+  # deploy 'latest' to environments; the commit SHA is also always pushed.
 
 stages:
   # ---------------------------------------------------------------------------
@@ -86,13 +87,26 @@ stages:
           - script: pytest -q
             displayName: Run unit tests
             workingDirectory: $(workingDir)
-          - script: docker build -t $(imageRepository):$(imageTag) .
+          # Validation-only build (never pushed). Uses the build id as a throwaway
+          # local tag; the real environment tag is computed later in BuildPush.
+          - script: docker build -t $(imageRepository):$(Build.BuildId) .
             displayName: Validate Docker build
             workingDirectory: $(workingDir)
 
   # ---------------------------------------------------------------------------
-  # Build the image once and push it to the shared ACR, tagged with both the
-  # build id and the commit SHA. Skipped on PRs.
+  # Build the image once and push it to the shared ACR, tagged with both a
+  # branch-derived tag and the commit SHA. Skipped on PRs.
+  #
+  # Branch-based image tag (computed at runtime by the 'setTag' step):
+  #   develop     -> develop.<BuildId>
+  #   release/*   -> release-<suffix>      (e.g. release/v1.1.0 -> release-v1.1.0)
+  #   main        -> prod-<VER>            (latest semver tag, MINOR bumped)
+  #   hotfix/*    -> prod-<VER>            (latest semver tag, PATCH bumped)
+  #   (fallback)  -> feature.<BuildId>     (feature branches don't trigger CI)
+  #
+  # For main/hotfix we also create and push an annotated git tag v<VER> to
+  # GitHub, so releases are versioned in source control. The commit SHA tag is
+  # always pushed too, giving every build an immutable reference.
   - stage: BuildPush
     displayName: Build and push image to ACR
     dependsOn: Validate
@@ -101,6 +115,75 @@ stages:
       - job: build_push
         displayName: Build and push
         steps:
+          # Need full history + tags so the version script can read the latest
+          # semver tag and push a new one. persistCredentials lets us reuse the
+          # checkout, but tag pushes use an explicit PAT (see below).
+          - checkout: self
+            fetchDepth: 0
+            fetchTags: true
+            persistCredentials: true
+
+          # Compute the environment image tag from the branch and, for
+          # main/hotfix, cut + push the next git tag. Emits 'imageTag' as an
+          # output variable consumed by the deploy stages.
+          - bash: |
+              set -euo pipefail
+              git fetch --tags --quiet || true
+
+              BRANCH="$(Build.SourceBranch)"
+
+              # Helper: latest reachable semver tag (vMAJOR.MINOR.PATCH), or
+              # default 0.0.0 if none exists yet.
+              latest_semver() {
+                local t
+                t=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || true)
+                if [ -z "$t" ]; then echo "0.0.0"; else echo "${t#v}"; fi
+              }
+
+              VER=""
+              if [ "$BRANCH" = "refs/heads/develop" ]; then
+                TAG="develop.$(Build.BuildId)"
+              elif [[ "$BRANCH" == refs/heads/release/* ]]; then
+                SUFFIX="${BRANCH#refs/heads/release/}"
+                TAG="release-${SUFFIX}"
+              elif [ "$BRANCH" = "refs/heads/main" ] || [[ "$BRANCH" == refs/heads/hotfix/* ]]; then
+                # Parse MAJOR.MINOR.PATCH from the latest semver tag.
+                BASE=$(latest_semver)
+                IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+                MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+                if [ "$BASE" = "0.0.0" ]; then
+                  # No prior release tag exists: start the line at 1.0.0.
+                  VER="1.0.0"
+                elif [ "$BRANCH" = "refs/heads/main" ]; then
+                  # main: bump MINOR, reset PATCH.
+                  VER="${MAJOR}.$((MINOR + 1)).0"
+                else
+                  # hotfix/*: bump PATCH.
+                  VER="${MAJOR}.${MINOR}.$((PATCH + 1))"
+                fi
+                TAG="prod-${VER}"
+              else
+                # feature/* or anything else (won't normally reach here).
+                TAG="feature.$(Build.BuildId)"
+              fi
+
+              echo "Branch:    $BRANCH"
+              echo "Image tag: $TAG"
+
+              # For production releases, create + push the annotated git tag.
+              if [ -n "$VER" ]; then
+                echo "Creating git tag v$VER"
+                git config user.email "azuredevops@noreply"
+                git config user.name "Azure Pipelines"
+                git tag -a "v$VER" -m "Release v$VER (CI)"
+                # Pushing a tag does NOT retrigger the pipeline (branch triggers).
+                git push "https://x-access-token:$(GITHUB_PAT)@github.com/DanielKuzmenkoo/AMAT-Azure-Devops-Project.git" "v$VER"
+              fi
+
+              echo "##vso[task.setvariable variable=imageTag;isOutput=true]$TAG"
+            name: setTag
+            displayName: Compute image tag (and release git tag)
+
           - task: AzureCLI@2
             displayName: Build and push to ACR
             inputs:
@@ -122,9 +205,11 @@ stages:
                 printf '%s' "$ACR_TOKEN" | docker login $(acrLoginServer) \
                   --username 00000000-0000-0000-0000-000000000000 --password-stdin
 
+                # $(setTag.imageTag): output var needs the step-name prefix even
+                # within the same job.
                 IMAGE=$(acrLoginServer)/$(imageRepository)
-                docker build -t $IMAGE:$(imageTag) -t $IMAGE:$(Build.SourceVersion) .
-                docker push $IMAGE:$(imageTag)
+                docker build -t $IMAGE:$(setTag.imageTag) -t $IMAGE:$(Build.SourceVersion) .
+                docker push $IMAGE:$(setTag.imageTag)
                 docker push $IMAGE:$(Build.SourceVersion)
 
   # ---------------------------------------------------------------------------
@@ -137,6 +222,10 @@ stages:
           or(eq('${{ parameters.environmentName }}', 'dev'),
              and(eq('${{ parameters.environmentName }}', 'auto'),
                  eq(variables['Build.SourceBranch'], 'refs/heads/develop'))))
+    # Resolve the branch-derived tag computed in BuildPush so the deploy
+    # templates' $(imageTag) points at the image we just pushed.
+    variables:
+      imageTag: $[ stageDependencies.BuildPush.build_push.outputs['setTag.imageTag'] ]
     jobs:
       - ${{ if eq(parameters.deployTarget, 'aca') }}:
           - template: .azure/deploy-aca.yml
@@ -157,6 +246,10 @@ stages:
           or(eq('${{ parameters.environmentName }}', 'staging'),
              and(eq('${{ parameters.environmentName }}', 'auto'),
                  startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))))
+    # Resolve the branch-derived tag computed in BuildPush so the deploy
+    # templates' $(imageTag) points at the image we just pushed.
+    variables:
+      imageTag: $[ stageDependencies.BuildPush.build_push.outputs['setTag.imageTag'] ]
     jobs:
       - ${{ if eq(parameters.deployTarget, 'aca') }}:
           - template: .azure/deploy-aca.yml
@@ -178,6 +271,10 @@ stages:
              and(eq('${{ parameters.environmentName }}', 'auto'),
                  or(eq(variables['Build.SourceBranch'], 'refs/heads/main'),
                     startsWith(variables['Build.SourceBranch'], 'refs/heads/hotfix/')))))
+    # Resolve the branch-derived tag computed in BuildPush so the deploy
+    # templates' $(imageTag) points at the image we just pushed.
+    variables:
+      imageTag: $[ stageDependencies.BuildPush.build_push.outputs['setTag.imageTag'] ]
     jobs:
       - ${{ if eq(parameters.deployTarget, 'aca') }}:
           - template: .azure/deploy-aca.yml
