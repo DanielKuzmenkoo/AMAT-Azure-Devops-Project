@@ -63,6 +63,28 @@ failure**, with properties: `environment`, `imageTag`, `commit`, `pipeline`,
 This complements Azure DevOps' built-in **pipeline Analytics** (build pass rate,
 duration trends) and the deploy stage's `/api/health` check.
 
+The Validate stage also publishes **test results** (JUnit) and **code coverage**
+(Cobertura) via `PublishTestResults@2` / `PublishCodeCoverageResults@2`, so
+per-build test pass rate, trends, and flaky-test detection light up natively.
+
+### Where to watch the pipeline
+
+| Signal | Where |
+|---|---|
+| Build pass rate, duration trends | Azure DevOps → **Pipelines → <pipeline> → Analytics** |
+| Test pass rate / trends / flaky tests | the run's **Tests** tab, and Pipelines → Analytics (test report) |
+| Code coverage per build | the run's **Code Coverage** tab |
+| Deployment frequency, lead time, change-failure rate (DORA) | App Insights → **Logs** (`customEvents` query below) or the **Workbook** |
+| Live deploy URL + health per run | the run's **Summary** tab (published by the deploy job) |
+
+Build/run logs and metrics live **inside Azure DevOps** by design (Analytics +
+Dashboards); only deployment events are forwarded to App Insights for DORA. We
+deliberately do not ship raw pipeline logs into Azure Monitor.
+
+To pin pipeline tiles to a board: Azure DevOps → **Overview → Dashboards → New
+Dashboard**, then add widgets — *Build history*, *Test results trend*,
+*Deployment status*, *Code coverage*.
+
 ## Setup
 
 Provisioned by [scripts/bootstrap-infra.sh](../scripts/bootstrap-infra.sh)
@@ -142,7 +164,19 @@ customEvents
 
 ## Dashboards
 
-Pin the queries above to an **Azure Dashboard**, or build an **Azure Monitor
-Workbook** for a curated app + pipeline view. (A Workbook can later be codified
-as `azurerm_application_insights_workbook` if you want it in Terraform; it is
-left out here to keep the module small.)
+A curated **Azure Monitor Workbook** ships as code in the monitoring module
+([infra/modules/monitoring/workbook.tf](../infra/modules/monitoring/workbook.tf),
+`azurerm_application_insights_workbook`). It combines pipeline and app health in
+one view:
+
+- **CI/CD (DORA):** deployment frequency per environment, change-failure rate.
+- **App:** request rate & p95 latency by environment, request failures by
+  operation, Open-Meteo dependency health.
+
+Open it in the portal: **Application Insights `appi-weather` → Workbooks →
+"Weather — app & pipeline health"**. Because it's Terraform, it is recreated
+identically on every deploy and reviewable in PRs.
+
+For pipeline-build metrics specifically (pass rate, test trends, coverage), use
+the Azure DevOps **Analytics** views and an **ADO Dashboard** (see "Where to
+watch the pipeline" above) — those live in Azure DevOps, not Azure Monitor.

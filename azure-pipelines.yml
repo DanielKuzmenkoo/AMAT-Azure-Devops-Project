@@ -90,13 +90,30 @@ stages:
             workingDirectory: $(workingDir)
           # Unit + integration are the build gate: they run on every PR and on
           # develop/release/main, so they protect the path to EVERY environment.
-          # Split into two named steps so the layers are visible in the UI.
-          - script: pytest -m unit -q
-            displayName: Unit tests
+          # One step runs both layers and emits JUnit XML (for the Tests tab /
+          # Test Analytics) and Cobertura coverage XML. Outputs land under
+          # $(System.DefaultWorkingDirectory) so the publish tasks' globs find
+          # them regardless of workingDirectory.
+          - script: >-
+              pytest -m "unit or integration"
+              --junitxml=$(System.DefaultWorkingDirectory)/test-results.xml
+              --cov=src
+              --cov-report=xml:$(System.DefaultWorkingDirectory)/coverage.xml
+            displayName: Unit + integration tests
             workingDirectory: $(workingDir)
-          - script: pytest -m integration -q
-            displayName: Integration tests
-            workingDirectory: $(workingDir)
+          # Publish even when tests fail, so trend/flaky analytics still get data.
+          - task: PublishTestResults@2
+            displayName: Publish test results
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: '$(System.DefaultWorkingDirectory)/test-results.xml'
+              testRunTitle: 'unit+integration'
+          - task: PublishCodeCoverageResults@2
+            displayName: Publish code coverage
+            condition: succeededOrFailed()
+            inputs:
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
           # Validation-only build (never pushed). Uses the build id as a throwaway
           # local tag; the real environment tag is computed later in BuildPush.
           - script: docker build -t $(imageRepository):$(Build.BuildId) .
