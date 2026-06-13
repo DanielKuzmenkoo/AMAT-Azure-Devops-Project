@@ -36,6 +36,18 @@ dependency "cae" {
   mock_outputs_allowed_terraform_commands = ["init", "plan", "validate", "destroy"]
 }
 
+# Application Insights connection string for app telemetry. Mock lets
+# plan/validate/destroy run before monitoring exists; an empty/real string both
+# work (empty disables telemetry in the app).
+dependency "monitoring" {
+  config_path = "../../shared/monitoring"
+
+  mock_outputs = {
+    connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://example.invalid/"
+  }
+  mock_outputs_allowed_terraform_commands = ["init", "plan", "validate", "destroy"]
+}
+
 inputs = {
   environment         = local.env.locals.environment
   location            = dependency.cae.outputs.location
@@ -48,6 +60,8 @@ inputs = {
   acr_id           = dependency.acr.outputs.acr_id
   # Baseline image; the pipeline promotes a specific tag via `az containerapp update`.
   image = "${dependency.acr.outputs.acr_login_server}/weather-api:latest"
+
+  app_insights_connection_string = dependency.monitoring.outputs.connection_string
 
   min_replicas = local.env.locals.min_replicas
   max_replicas = local.env.locals.max_replicas

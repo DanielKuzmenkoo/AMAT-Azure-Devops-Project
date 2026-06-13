@@ -23,6 +23,13 @@ variable "container_app_environment_id" {
   description = "Resource ID of the shared Container Apps environment to join."
 }
 
+variable "app_insights_connection_string" {
+  type        = string
+  description = "Application Insights connection string. Empty disables app telemetry."
+  default     = ""
+  sensitive   = true
+}
+
 variable "acr_login_server" {
   type        = string
   description = "ACR login server, from the shared acr module output."

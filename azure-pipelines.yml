@@ -61,6 +61,10 @@ variables:
     value: 'acrweatherd76d60' # ACR resource name
   - name: acrLoginServer
     value: 'acrweatherd76d60.azurecr.io'
+  # Optional, for DORA deployment events: add APPLICATIONINSIGHTS_CONNECTION_STRING
+  # as a *secret* pipeline variable (Pipelines > Edit > Variables). Value:
+  #   cd infra/live/shared/monitoring && terragrunt output -raw connection_string
+  # When unset, the deploy job's "Record deployment event" step is a no-op.
   # NOTE: the environment image tag is NOT a pipeline-level variable. It is
   # computed at runtime per branch by the 'setTag' step in BuildPush and
   # consumed by the deploy stages as an output variable (see below). We never

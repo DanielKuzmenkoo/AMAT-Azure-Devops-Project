@@ -87,6 +87,19 @@ resource "azurerm_container_app" "app" {
         value = tostring(var.http_timeout_seconds)
       }
 
+      # Observability: when the connection string is set, the app exports
+      # OpenTelemetry to Application Insights. Empty = telemetry disabled (the
+      # app's init is a no-op), so this is safe before monitoring is provisioned.
+      # OTEL_SERVICE_NAME is the App Insights cloud role name, per environment.
+      env {
+        name  = "APPLICATIONINSIGHTS_CONNECTION_STRING"
+        value = var.app_insights_connection_string
+      }
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "weather-${var.environment}"
+      }
+
       liveness_probe {
         transport = "HTTP"
         port      = var.app_port

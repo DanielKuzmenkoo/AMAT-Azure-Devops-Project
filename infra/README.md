@@ -8,11 +8,13 @@ infra/
 │   ├── acr/                # Shared Azure Container Registry
 │   ├── container-app-env/  # Shared Container Apps environment (one per sub)
 │   ├── container-app/      # Per-env app + identity + AcrPull (joins the CAE)
+│   ├── monitoring/         # App Insights (reuses the CAE workspace) + alerts
 │   └── vm-onprem-sim/      # Optional Linux VM (on-prem simulation)
 └── live/                   # Terragrunt environments (DRY)
     ├── root.hcl            # provider + remote-state backend (included everywhere)
     ├── shared/acr/         # the one shared registry (deploy FIRST)
     ├── shared/cae/         # the one shared Container Apps env (deploy SECOND)
+    ├── shared/monitoring/  # Application Insights (deploy THIRD)
     ├── dev/                # env.hcl + container-app/ + vm-onprem-sim/
     ├── staging/            # env.hcl + container-app/ + vm-onprem-sim/
     └── prod/               # env.hcl + container-app/ + vm-onprem-sim/

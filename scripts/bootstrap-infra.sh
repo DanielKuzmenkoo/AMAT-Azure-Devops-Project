@@ -47,22 +47,26 @@ echo "==> Registering resource providers (one-time, subscription-wide)"
 az provider register --namespace Microsoft.App --wait
 az provider register --namespace Microsoft.OperationalInsights --wait
 
-echo "==> [1/4] Deploying shared ACR"
+echo "==> [1/5] Deploying shared ACR"
 apply_unit "$LIVE/shared/acr"
 ACR_NAME="$(output_raw "$LIVE/shared/acr" acr_name)"
 ACR_LOGIN="$(output_raw "$LIVE/shared/acr" acr_login_server)"
 echo "    ACR: $ACR_LOGIN"
 
-echo "==> [2/4] Building & pushing bootstrap image ($IMAGE_REPO:latest)"
+echo "==> [2/5] Building & pushing bootstrap image ($IMAGE_REPO:latest)"
 az acr login --name "$ACR_NAME"
 docker build -t "$ACR_LOGIN/$IMAGE_REPO:latest" "$REPO_ROOT/app"
 docker push "$ACR_LOGIN/$IMAGE_REPO:latest"
 
-echo "==> [3/4] Deploying shared Container Apps environment (one CAE for all envs)"
+echo "==> [3/5] Deploying shared Container Apps environment (one CAE for all envs)"
 apply_unit "$LIVE/shared/cae"
 echo "    CAE: $(output_raw "$LIVE/shared/cae" container_app_environment_id)"
 
-echo "==> [4/4] Deploying Container Apps: ${ENVIRONMENTS[*]}"
+echo "==> [4/5] Deploying shared Application Insights (reuses the CAE workspace)"
+apply_unit "$LIVE/shared/monitoring"
+echo "    App Insights: $(output_raw "$LIVE/shared/monitoring" app_insights_name)"
+
+echo "==> [5/5] Deploying Container Apps: ${ENVIRONMENTS[*]}"
 for env in "${ENVIRONMENTS[@]}"; do
   echo "    -> $env"
   apply_unit "$LIVE/$env/container-app"
@@ -72,3 +76,7 @@ done
 echo "==> Bootstrap complete."
 echo "    The Azure DevOps pipeline now builds new tags into this ACR and"
 echo "    rolls each environment's Container App to them."
+echo
+echo "    For pipeline deployment events (DORA), set the pipeline secret variable"
+echo "    APPLICATIONINSIGHTS_CONNECTION_STRING to:"
+echo "      cd infra/live/shared/monitoring && terragrunt output -raw connection_string"

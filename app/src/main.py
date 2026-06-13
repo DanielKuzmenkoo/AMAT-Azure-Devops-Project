@@ -6,6 +6,7 @@ share the shape ``{"error": "<message>"}``.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request
@@ -16,6 +17,27 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .open_meteo import UpstreamError, UpstreamTimeoutError
 from .schemas import ErrorResponse, LocationsResponse, WeatherResponse
 from .service import CityNotFoundError, get_locations, get_weather
+
+
+def _configure_observability() -> None:
+    """Wire up Application Insights via the Azure Monitor OpenTelemetry distro.
+
+    Runs before the app is created so FastAPI request auto-instrumentation
+    applies. It is a no-op unless APPLICATIONINSIGHTS_CONNECTION_STRING is set,
+    so local development, CI, and tests run with no telemetry and no extra
+    dependencies exercised. The Container App injects the connection string and
+    sets OTEL_SERVICE_NAME to the per-environment cloud role name.
+    """
+    if not os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        return
+    from azure.monitor.opentelemetry import configure_azure_monitor
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+    configure_azure_monitor()  # auto-instruments FastAPI; exports to App Insights
+    HTTPXClientInstrumentor().instrument()  # trace outbound Open-Meteo calls
+
+
+_configure_observability()
 
 app = FastAPI(
     title="Weather API",
