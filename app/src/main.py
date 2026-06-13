@@ -6,6 +6,7 @@ share the shape ``{"error": "<message>"}``.
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -27,14 +28,24 @@ def _configure_observability() -> None:
     so local development, CI, and tests run with no telemetry and no extra
     dependencies exercised. The Container App injects the connection string and
     sets OTEL_SERVICE_NAME to the per-environment cloud role name.
+
+    Telemetry is best-effort: any failure here (missing package, bad connection
+    string, unreachable endpoint) is logged and swallowed so observability can
+    never take the app down.
     """
     if not os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
         return
-    from azure.monitor.opentelemetry import configure_azure_monitor
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-    configure_azure_monitor()  # auto-instruments FastAPI; exports to App Insights
-    HTTPXClientInstrumentor().instrument()  # trace outbound Open-Meteo calls
+        configure_azure_monitor()  # auto-instruments FastAPI; exports to App Insights
+        HTTPXClientInstrumentor().instrument()  # trace outbound Open-Meteo calls
+    except Exception:  # noqa: BLE001 - telemetry must never crash the app
+        logging.getLogger(__name__).warning(
+            "Application Insights setup failed; continuing without telemetry.",
+            exc_info=True,
+        )
 
 
 _configure_observability()
